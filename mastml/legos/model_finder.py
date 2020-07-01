@@ -24,12 +24,14 @@ from keras.models import load_model
 from keras.models import Sequential
 
 import random
+random.seed(0)
 
 import pandas as pd
 
 #from . import keras_models
 from mastml import utils
 
+import pickle
 from scipy import stats
 
 with warnings.catch_warnings():
@@ -195,7 +197,7 @@ class KerasRegressor():
 # NOTE: in order to use this, other models for the custom ensemble must be defined 
 #       in the conf file with "_ensemble" somewhere in the name
 class EnsembleRegressor():
-    def __init__(self, n_estimators, num_samples, model_list, num_models):
+    def __init__(self, num_samples, model_list, num_models):
         self.model_list = model_list # should be list of strings
         self.num_models = num_models # how many of each of the specified models should be included in the ensemble
         self.n_estimators = sum(self.num_models)
@@ -266,7 +268,7 @@ class EnsembleRegressor():
             all_preds.append(preds)
             means.append(np.mean(preds))
 
-            # NOTE for ref (if manual jackknife implementation is necessary)
+            # NOTE if manual implementation is desired
             # https://www.jpytr.com/post/random_forests_and_jackknife_variance/
             # https://github.com/scikit-learn-contrib/forest-confidence-interval/tree/master/forestci
             # http://contrib.scikit-learn.org/forest-confidence-interval/reference/forestci.html
