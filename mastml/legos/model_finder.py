@@ -23,12 +23,14 @@ from keras.models import load_model
 from keras.models import Sequential
 
 import random
+random.seed(0)
 
 import pandas as pd
 
 #from . import keras_models
 from mastml import utils
 
+import pickle
 from scipy import stats
 
 with warnings.catch_warnings():
@@ -194,13 +196,14 @@ class KerasRegressor():
 # NOTE: in order to use this, other models for the custom ensemble must be defined 
 #       in the conf file with "_ensemble" somewhere in the name
 class EnsembleRegressor():
-    def __init__(self, n_estimators, num_samples, model_list, num_models):
+    def __init__(self, num_samples, model_list, num_models):
         self.model_list = model_list # should be list of strings
         self.num_models = num_models # how many of each of the specified models should be included in the ensemble
-        self.n_estimators = n_estimators
+        self.n_estimators = sum(self.num_models)
         self.num_samples = num_samples
         self.max_samples = num_samples
         self.bootstrapped_datasets = []
+        self.bootstrapped_idxs = []
         self.all_preds = []
         self.path = ""
         self.model = self.build_models() # actually a list of models for use as the members in the ensemble
@@ -208,8 +211,6 @@ class EnsembleRegressor():
         self.fold = -1
 
         self.bootstrap = True
-
-        assert self.n_estimators == sum(self.num_models)
 
     def build_models(self):
         model = []
@@ -222,6 +223,7 @@ class EnsembleRegressor():
 
     def setup(self, path):
         self.fold += 1
+        self.bootstrapped_idxs = []
         self.bootstrapped_datasets = []
         self.path = path
 
@@ -243,6 +245,7 @@ class EnsembleRegressor():
             if 1 == len(bootstrap_Y.shape):
                 bootstrap_Y = np.expand_dims(np.asarray(bootstrap_Y), -1)
 
+            self.bootstrapped_idxs.append(bootstrap_idxs)
             self.bootstrapped_datasets.append(bootstrap_X)
             model.fit(bootstrap_X, bootstrap_Y)
 
@@ -264,7 +267,7 @@ class EnsembleRegressor():
             all_preds.append(preds)
             means.append(np.mean(preds))
 
-            # NOTE for ref (if manual jackknife implementation is necessary)
+            # NOTE if manual implementation is desired
             # https://www.jpytr.com/post/random_forests_and_jackknife_variance/
             # https://github.com/scikit-learn-contrib/forest-confidence-interval/tree/master/forestci
             # http://contrib.scikit-learn.org/forest-confidence-interval/reference/forestci.html
@@ -275,38 +278,38 @@ class EnsembleRegressor():
 
     # check for failed fits, warn users, and re-calculate
     def stats_check_models(self, X, Y):
-        maes = []
-        for i in range(self.n_estimators):
-            abs_errors = np.absolute(np.absolute(np.squeeze(np.asarray(self.all_preds)[:,i])) - Y)
-            maes.append(sum(abs_errors) / len(abs_errors))
+        if self.n_estimators > 10:
+            maes = []
+            for i in range(self.n_estimators):
+                abs_errors = np.absolute(np.absolute(np.squeeze(np.asarray(self.all_preds)[:,i])) - Y)
+                maes.append(sum(abs_errors) / len(abs_errors))
 
-        alpha = 0.01
-        bad_idxs = []
-        for i in range(self.n_estimators):
-            other_maes = np.delete(maes, [i])
-            # ref: https://towardsdatascience.com/statistical-significance-hypothesis-testing-the-normal-curve-and-p-values-93274fa32687
-            z_score = (maes[i] - np.mean(other_maes)) / np.std(other_maes)
-            # ref: https://stackoverflow.com/questions/3496656/convert-z-score-z-value-standard-score-to-p-value-for-normal-distribution-in/3508321
-            p_val = stats.norm.sf(abs(z_score))*2
+            alpha = 0.01
+            bad_idxs = []
+            for i in range(self.n_estimators):
+                other_maes = np.delete(maes, [i])
+                # ref: https://towardsdatascience.com/statistical-significance-hypothesis-testing-the-normal-curve-and-p-values-93274fa32687
+                z_score = (maes[i] - np.mean(other_maes)) / np.std(other_maes)
+                # ref: https://stackoverflow.com/questions/3496656/convert-z-score-z-value-standard-score-to-p-value-for-normal-distribution-in/3508321
+                p_val = stats.norm.sf(abs(z_score))*2
 
-            if p_val <= alpha:
-                # TODO ok to print these/how to print/log properly?
-                print("Estimator {} failed under statistical significance threshold {} (p_val {}), relevant dataset output to file with name format \'<fold>_<estimator idx>_bootstrapped_dataset.csv\'".format(i, alpha, p_val))
-                print("bad estimator mae: {}".format(maes[i]))
-                print("maes (for ref):")
-                print(maes)
-                np.savetxt(self.path + "\\{}_{}_bootstrapped_dataset.csv".format(self.fold, i), self.bootstrapped_datasets[i], delimiter=",")
-                bad_idxs.append(i)
+                if p_val <= alpha:
+                    # TODO ok to print these/how to print/log properly?
+                    print("Estimator {} failed under statistical significance threshold {} (p_val {}), relevant dataset output to file with name format \'<fold>_<estimator idx>_bootstrapped_dataset.csv\'".format(i, alpha, p_val))
+                    print("bad estimator mae: {}".format(maes[i]))
+                    print("mean mae (for ref):")
+                    print(np.mean(maes))
+                    np.savetxt(self.path + "\\{}_{}_bootstrapped_dataset.csv".format(self.fold, i), self.bootstrapped_datasets[i], delimiter=",")
+                    bad_idxs.append(i)
 
-        if len(bad_idxs) == self.n_estimators:
-            print("ALL models failed, wtf is your data")
-            return
-        # NOTE do not remove these models and recalculate for now
-        #all_preds = np.delete(self.all_preds, bad_idxs, 1)
+            if len(bad_idxs) == self.n_estimators:
+                print("ALL models failed, wtf is your data")
+                return
+            self.all_preds = np.delete(self.all_preds, bad_idxs, 1)
 
-        #y_preds = []
-        #for idx, x_i in enumerate(all_preds):
-        #    y_preds.append(np.mean(x_i))
+        y_preds = []
+        for idx, x_i in enumerate(self.all_preds):
+            y_preds.append(np.mean(x_i))
 
         return np.asarray(y_preds)
 
