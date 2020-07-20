@@ -1136,7 +1136,6 @@ def calc_inbag_modified(n_samples, forest, is_ensemble):
     inbag = np.zeros((n_samples, n_trees))
     sample_idx = []
     n_samples_bootstrap = _get_n_samples_bootstrap(
-        #n_samples, forest.max_samples
         n_samples, n_samples
     )
 
@@ -1254,7 +1253,7 @@ def random_forest_error_modified(forest, is_ensemble, X_train, X_test, basic_IJ=
 
         calibration_ratio = 2
         n_sample = np.ceil(n_trees / calibration_ratio)
-        new_forest = copy.deepcopy(forest) # NOTE may need to do explicitly this for EnsembleRegressor -> update: doesn't seem to cause any issues
+        new_forest = copy.deepcopy(forest)
         if not is_ensemble:
             new_forest.estimators_ =\
                 np.random.permutation(new_forest.estimators_)[:int(n_sample)]
@@ -1263,10 +1262,6 @@ def random_forest_error_modified(forest, is_ensemble, X_train, X_test, basic_IJ=
                 np.random.permutation(new_forest.model)[:int(n_sample)]
         new_forest.n_estimators = int(n_sample)
 
-        #results_ss = fci.random_forest_error(new_forest, X_train, X_test,
-        #                                 calibrate=False,
-        #                                 memory_constrained=memory_constrained,
-        #                                 memory_limit=memory_limit)
         results_ss = random_forest_error_modified(new_forest, is_ensemble, X_train, X_test,
                                          calibrate=False,
                                          memory_constrained=memory_constrained,
@@ -1968,7 +1963,6 @@ def parse_error_data(dataset_stdev, path_to_test, data_test_type):
         if e > (max(bin_values) + bin_delta):
             over_count += 1
             over_vals.append(e)
-
     if len(over_vals):
         med_over_val = statistics.median(over_vals)
         if med_over_val <= max(bin_values) * 2.0:
